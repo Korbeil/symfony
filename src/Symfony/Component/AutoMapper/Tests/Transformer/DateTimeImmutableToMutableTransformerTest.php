@@ -1,0 +1,25 @@
+<?php
+
+namespace Symfony\Component\AutoMapper\Tests\Transformer;
+
+use Symfony\Component\AutoMapper\Transformer\DateTimeImmutableToMutableTransformer;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * @author Baptiste Leduc <baptiste.leduc@gmail.com>
+ */
+class DateTimeImmutableToMutableTransformerTest extends TestCase
+{
+    use EvalTransformerTrait;
+
+    public function testDateTimeImmutableTransformer()
+    {
+        $transformer = new DateTimeImmutableToMutableTransformer();
+
+        $date = new \DateTimeImmutable();
+        $output = $this->evalTransformer($transformer, $date);
+
+        self::assertInstanceOf(\DateTime::class, $output);
+        self::assertSame($date->format(\DateTime::RFC3339), $output->format(\DateTime::RFC3339));
+    }
+}

@@ -18,6 +18,7 @@ use Symfony\Bundle\FullStack;
 use Symfony\Component\Asset\Package;
 use Symfony\Component\AssetMapper\AssetMapper;
 use Symfony\Component\AssetMapper\ImportMap\ImportMapManager;
+use Symfony\Component\AutoMapper\AutoMapper;
 use Symfony\Component\Cache\Adapter\DoctrineAdapter;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\NodeBuilder;
@@ -178,6 +179,7 @@ class Configuration implements ConfigurationInterface
         $this->addHtmlSanitizerSection($rootNode, $enableIfStandalone);
         $this->addWebhookSection($rootNode, $enableIfStandalone);
         $this->addRemoteEventSection($rootNode, $enableIfStandalone);
+        $this->addAutoMapperSection($rootNode, $enableIfStandalone);
 
         return $treeBuilder;
     }
@@ -2441,6 +2443,35 @@ class Configuration implements ConfigurationInterface
                                         ->info('The maximum length allowed for the sanitized input.')
                                         ->defaultValue(0)
                                     ->end()
+                                ->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+            ->end()
+        ;
+    }
+
+    private function addAutoMapperSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
+    {
+        $rootNode
+            ->children()
+                ->arrayNode('automapper')
+                    ->info('AutoMapper configuration')
+                    ->{$enableIfStandalone('symfony/automapper', AutoMapper::class)}()
+                    ->children()
+                        ->booleanNode('normalizer')->defaultFalse()->end()
+                        ->scalarNode('name_converter')->defaultNull()->end()
+                        ->scalarNode('cache_dir')->defaultValue('%kernel.cache_dir%/automapper')->end()
+                        ->scalarNode('date_time_format')->defaultValue(\DateTimeInterface::RFC3339)->end()
+                        ->scalarNode('mapper_prefix')->defaultValue('Symfony_Mapper_')->end()
+                        ->booleanNode('hot_reload')->defaultValue($this->debug)->end()
+                        ->booleanNode('allow_readonly_target_to_populate')->defaultFalse()->end()
+                        ->arrayNode('warmup')
+                            ->arrayPrototype()
+                                ->children()
+                                    ->scalarNode('source')->defaultValue('array')->end()
+                                    ->scalarNode('target')->defaultValue('array')->end()
                                 ->end()
                             ->end()
                         ->end()

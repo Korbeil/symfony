@@ -1,0 +1,47 @@
+<?php
+
+namespace Symfony\Component\AutoMapper\Tests\Transformer;
+
+use Symfony\Component\AutoMapper\Transformer\ObjectTransformer;
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\AutoMapper\Tests\Fixtures;
+
+/**
+ * @author Baptiste Leduc <baptiste.leduc@gmail.com>
+ */
+class ObjectTransformerTest extends TestCase
+{
+    use EvalTransformerTrait;
+
+    public function testObjectTransformer()
+    {
+        $transformer = new ObjectTransformer(new Type('object', false, Foo::class), new Type('object', false, Foo::class));
+
+        $function = $this->createTransformerFunction($transformer);
+        $class = new class() {
+            public $mappers;
+
+            public function __construct()
+            {
+                $this->mappers['Mapper_' . Foo::class . '_' . Foo::class] = new class() {
+                    public function map()
+                    {
+                        return new Foo();
+                    }
+                };
+            }
+        };
+
+        $transform = \Closure::bind($function, $class);
+        $output = $transform(new Foo());
+
+        self::assertNotNull($output);
+        self::assertInstanceOf(Foo::class, $output);
+    }
+}
+
+class Foo
+{
+    public $bar;
+}

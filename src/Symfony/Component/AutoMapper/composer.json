@@ -1,0 +1,40 @@
+{
+    "name": "symfony/automapper",
+    "type": "library",
+    "description": "Map data from a source to a target",
+    "keywords": [],
+    "homepage": "https://symfony.com",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Fabien Potencier",
+            "email": "fabien@symfony.com"
+        },
+        {
+            "name": "Symfony Community",
+            "homepage": "https://symfony.com/contributors"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "nikic/php-parser": "^4.0",
+        "symfony/property-info": "^6.0",
+        "symfony/serializer": "^6.0"
+    },
+    "require-dev": {
+        "moneyphp/money": "^4.1",
+        "symfony/http-kernel": "^6.0",
+        "symfony/uid": "^6.0",
+        "symfony/filesystem": "^6.0",
+        "doctrine/annotations": "^2.0",
+        "phpstan/phpdoc-parser": "^1.16",
+        "phpdocumentor/reflection-docblock": "^5.2"
+    },
+    "autoload": {
+        "psr-4": { "Symfony\\Component\\AutoMapper\\": "" },
+        "exclude-from-classmap": [
+            "/Tests/"
+        ]
+    },
+    "minimum-stability": "dev"
+}

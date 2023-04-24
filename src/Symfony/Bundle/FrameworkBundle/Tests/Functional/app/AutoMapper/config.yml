@@ -1,0 +1,16 @@
+imports:
+    - { resource: ../config/default.yml }
+
+framework:
+    automapper: 
+        enabled: true
+        warmup:
+            - {source: 'array', target: 'Symfony\Bundle\FrameworkBundle\Tests\Fixtures\AutoMapper\Foo'}
+            - {target: 'Symfony\Bundle\FrameworkBundle\Tests\Fixtures\AutoMapper\Bar'}
+    serializer: { enabled: true }
+    property_info: { enabled: true }
+
+services:
+    automapper.alias:
+        alias: automapper
+        public: true

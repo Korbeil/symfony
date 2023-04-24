@@ -34,6 +34,12 @@ use Symfony\Component\AssetMapper\AssetMapper;
 use Symfony\Component\AssetMapper\Compiler\AssetCompilerInterface;
 use Symfony\Component\AssetMapper\ImportMap\ImportMapManager;
 use Symfony\Component\AssetMapper\ImportMap\Resolver\PackageResolverInterface;
+use Symfony\Component\AutoMapper\AutoMapper;
+use Symfony\Component\AutoMapper\CacheWarmup\CacheWarmerLoaderInterface;
+use Symfony\Component\AutoMapper\Generator\Generator;
+use Symfony\Component\AutoMapper\MapperConfigurationInterface;
+use Symfony\Component\AutoMapper\MapperGeneratorMetadataInterface;
+use Symfony\Component\AutoMapper\Transformer\TransformerFactoryInterface;
 use Symfony\Component\BrowserKit\AbstractBrowser;
 use Symfony\Component\Cache\Adapter\AdapterInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -165,6 +171,7 @@ use Symfony\Component\Translation\Extractor\PhpAstExtractor;
 use Symfony\Component\Translation\LocaleSwitcher;
 use Symfony\Component\Translation\PseudoLocalizationTranslator;
 use Symfony\Component\Translation\Translator;
+use Symfony\Component\Uid\AbstractUid;
 use Symfony\Component\Uid\Factory\UuidFactory;
 use Symfony\Component\Uid\UuidV4;
 use Symfony\Component\Validator\ConstraintValidatorInterface;
@@ -553,6 +560,10 @@ class FrameworkExtension extends Extension
             $this->registerRemoteEventConfiguration($config['remote-event'], $container, $loader);
         }
 
+        if ($this->readConfigEnabled('automapper', $container, $config['automapper'])) {
+            $this->registerAutoMapperConfiguration($config['automapper'], $container, $loader);
+        }
+
         if ($this->readConfigEnabled('html_sanitizer', $container, $config['html_sanitizer'])) {
             if (!class_exists(HtmlSanitizerConfig::class)) {
                 throw new LogicException('HtmlSanitizer support cannot be enabled as the HtmlSanitizer component is not installed. Try running "composer require symfony/html-sanitizer".');
@@ -639,6 +650,14 @@ class FrameworkExtension extends Extension
             ->addTag('serializer.normalizer');
         $container->registerForAutoconfiguration(DenormalizerInterface::class)
             ->addTag('serializer.normalizer');
+        $container->registerForAutoconfiguration(TransformerFactoryInterface::class)
+            ->addTag('automapper.transformer_factory');
+        $container->registerForAutoconfiguration(MapperGeneratorMetadataInterface::class)
+            ->addTag('automapper.mapper_metadata');
+        $container->registerForAutoconfiguration(MapperConfigurationInterface::class)
+            ->addTag('automapper.mapper_configuration');
+        $container->registerForAutoconfiguration(CacheWarmerLoaderInterface::class)
+            ->addTag('automapper.cache_warmer_loader');
         $container->registerForAutoconfiguration(ConstraintValidatorInterface::class)
             ->addTag('validator.constraint_validator');
         $container->registerForAutoconfiguration(ObjectInitializerInterface::class)
@@ -2931,6 +2950,54 @@ class FrameworkExtension extends Extension
                 $container->registerAliasForArgument($sanitizerId, HtmlSanitizerInterface::class, $sanitizerName);
             }
         }
+    }
+
+    public function registerAutoMapperConfiguration(array $config, ContainerBuilder $container, PhpFileLoader $loader): void
+    {
+        if (!class_exists(AutoMapper::class)) {
+            throw new LogicException('AutoMapper support cannot be enabled as the component is not installed. Try running "composer require symfony/automapper".');
+        }
+
+        $loader->load('automapper.php');
+
+        $container->getDefinition('automapper.loader.file')->replaceArgument(2, $config['hot_reload']);
+
+        if (class_exists(AbstractUid::class)) {
+            $container
+                ->getDefinition('automapper.transformer_factory.symfony_uid')
+                ->addTag('automapper.transformer_factory', ['priority' => -1001]);
+        }
+
+        if ($config['normalizer']) {
+            $container
+                ->getDefinition('automapper.normalizer')
+                ->addTag('serializer.normalizer', ['priority' => 1000])
+            ;
+        }
+
+        if (null !== $config['name_converter']) {
+            $container
+                ->getDefinition('automapper.extractor.from_target')
+                ->addArgument(new Reference($config['name_converter']));
+
+            $container
+                ->getDefinition('automapper.extractor.from_source')
+                ->addArgument(new Reference($config['name_converter']));
+        }
+
+        if ($config['allow_readonly_target_to_populate']) {
+            $container
+                ->getDefinition(Generator::class)
+                ->replaceArgument(2, $config['allow_readonly_target_to_populate']);
+        }
+
+        $container
+            ->getDefinition('automapper.configuration_cache_warmer')
+            ->replaceArgument(0, $config['warmup']);
+
+        $container->setParameter('automapper.mapper_prefix', $config['mapper_prefix']);
+        $container->setParameter('automapper.datetime_format', $config['date_time_format']);
+        $container->setParameter('automapper.cache_dir', $config['cache_dir']);
     }
 
     private function resolveTrustedHeaders(array $headers): int

@@ -782,6 +782,17 @@ class ConfigurationTest extends TestCase
             'remote-event' => [
                 'enabled' => false,
             ],
+            'automapper' => [
+                'enabled' => true,
+                'normalizer' => false,
+                'name_converter' => null,
+                'cache_dir' => '%kernel.cache_dir%/automapper',
+                'date_time_format' => \DateTimeInterface::ATOM,
+                'mapper_prefix' => 'Symfony_Mapper_',
+                'hot_reload' => true,
+                'allow_readonly_target_to_populate' => false,
+                'warmup' => [],
+            ],
         ];
     }
 }

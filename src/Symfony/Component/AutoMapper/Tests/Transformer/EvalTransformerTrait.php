@@ -1,0 +1,58 @@
+<?php
+
+namespace Symfony\Component\AutoMapper\Tests\Transformer;
+
+use Symfony\Component\AutoMapper\Extractor\PropertyMapping;
+use Symfony\Component\AutoMapper\Extractor\ReadAccessor;
+use Symfony\Component\AutoMapper\Extractor\ReadAccessorType;
+use Symfony\Component\AutoMapper\Generator\UniqueVariableScope;
+use Symfony\Component\AutoMapper\Transformer\TransformerInterface;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Param;
+use PhpParser\Node\Stmt;
+use PhpParser\PrettyPrinter\Standard;
+
+/**
+ * @author Baptiste Leduc <baptiste.leduc@gmail.com>
+ */
+trait EvalTransformerTrait
+{
+    private function createTransformerFunction(TransformerInterface $transformer, PropertyMapping $propertyMapping = null): \Closure
+    {
+        if (null === $propertyMapping) {
+            $propertyMapping = new PropertyMapping(
+                new ReadAccessor(ReadAccessorType::PROPERTY, 'dummy'),
+                null,
+                null,
+                $transformer,
+                'dummy'
+            );
+        }
+
+        $variableScope = new UniqueVariableScope();
+        $inputName = $variableScope->getUniqueName('input');
+        $inputExpr = new Expr\Variable($inputName);
+
+        // we give $inputExpr as $targetExpr since we don't use it there and this is needed by TransformerInterface
+        [$outputExpr, $stmts] = $transformer->transform($inputExpr, $inputExpr, $propertyMapping, $variableScope);
+
+        $stmts[] = new Stmt\Return_($outputExpr);
+
+        $functionExpr = new Expr\Closure([
+            'stmts' => $stmts,
+            'params' => [new Param($inputExpr), new Param(new Expr\Variable('context'), new Expr\Array_())],
+        ]);
+
+        $printer = new Standard();
+        $code = $printer->prettyPrint([new Stmt\Return_($functionExpr)]);
+
+        return eval($code);
+    }
+
+    private function evalTransformer(TransformerInterface $transformer, $input, PropertyMapping $propertyMapping = null)
+    {
+        $function = $this->createTransformerFunction($transformer, $propertyMapping);
+
+        return $function($input);
+    }
+}
