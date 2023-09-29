@@ -1,0 +1,81 @@
+<?php
+
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+namespace Symfony\Component\AutoMapper\Transformer;
+
+use Symfony\Component\AutoMapper\Extractor\PropertyMapping;
+use Symfony\Component\AutoMapper\Extractor\WriteMutatorType;
+use Symfony\Component\AutoMapper\Generator\UniqueVariableScope;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Name;
+use PhpParser\Node\Stmt;
+
+/**
+ * @author Baptiste Leduc <baptiste.leduc@gmail.com>
+ */
+abstract class AbstractArrayTransformer implements TransformerInterface, DependentTransformerInterface
+{
+    public function __construct(
+        private readonly TransformerInterface $itemTransformer
+    ) {
+    }
+
+    abstract protected function getAssignExpr(Expr $valuesVar, Expr $outputVar, Expr $loopKeyVar, bool $assignByRef): Expr;
+
+    /**
+     * @return array{0: Expr\Variable, 1: array<array-key, Stmt\Expression|Stmt\Foreach_>}
+     */
+    public function transform(Expr $input, Expr $target, PropertyMapping $propertyMapping, UniqueVariableScope $uniqueVariableScope): array
+    {
+        $valuesVar = new Expr\Variable($uniqueVariableScope->getUniqueName('values'));
+        $statements = [
+            new Stmt\Expression(new Expr\Assign($valuesVar, new Expr\Array_())),
+        ];
+
+        $loopValueVar = new Expr\Variable($uniqueVariableScope->getUniqueName('value'));
+        $loopKeyVar = new Expr\Variable($uniqueVariableScope->getUniqueName('key'));
+
+        $assignByRef = $this->itemTransformer instanceof AssignedByReferenceTransformerInterface && $this->itemTransformer->assignByRef();
+
+        [$output, $itemStatements] = $this->itemTransformer->transform($loopValueVar, $target, $propertyMapping, $uniqueVariableScope);
+
+        if ($propertyMapping->writeMutator && WriteMutatorType::ADDER_AND_REMOVER === $propertyMapping->writeMutator->getType()) {
+            $mappedValueVar = new Expr\Variable($uniqueVariableScope->getUniqueName('mappedValue'));
+            $itemStatements[] = new Stmt\Expression(new Expr\Assign($mappedValueVar, $output));
+            $itemStatements[] = new Stmt\If_(new Expr\BinaryOp\NotIdentical(new Expr\ConstFetch(new Name('null')), $mappedValueVar), [
+                'stmts' => [
+                    new Stmt\Expression($propertyMapping->writeMutator->getExpression($target, $mappedValueVar, $assignByRef)),
+                ],
+            ]);
+        } else {
+            $itemStatements[] = new Stmt\Expression($this->getAssignExpr($valuesVar, $output, $loopKeyVar, $assignByRef));
+        }
+
+        $statements[] = new Stmt\Foreach_($input, $loopValueVar, [
+            'stmts' => $itemStatements,
+            'keyVar' => $loopKeyVar,
+        ]);
+
+        return [$valuesVar, $statements];
+    }
+
+    /**
+     * @return MapperDependency[]
+     */
+    public function getDependencies(): array
+    {
+        if (!$this->itemTransformer instanceof DependentTransformerInterface) {
+            return [];
+        }
+
+        return $this->itemTransformer->getDependencies();
+    }
+}
