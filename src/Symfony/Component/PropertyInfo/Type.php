@@ -11,6 +11,8 @@
 
 namespace Symfony\Component\PropertyInfo;
 
+use Symfony\Component\TypeInfo\Type as BaseType;
+
 /**
  * Type value object (immutable).
  *
@@ -20,18 +22,18 @@ namespace Symfony\Component\PropertyInfo;
  */
 class Type
 {
-    public const BUILTIN_TYPE_INT = 'int';
-    public const BUILTIN_TYPE_FLOAT = 'float';
-    public const BUILTIN_TYPE_STRING = 'string';
-    public const BUILTIN_TYPE_BOOL = 'bool';
-    public const BUILTIN_TYPE_RESOURCE = 'resource';
-    public const BUILTIN_TYPE_OBJECT = 'object';
-    public const BUILTIN_TYPE_ARRAY = 'array';
-    public const BUILTIN_TYPE_NULL = 'null';
-    public const BUILTIN_TYPE_FALSE = 'false';
-    public const BUILTIN_TYPE_TRUE = 'true';
-    public const BUILTIN_TYPE_CALLABLE = 'callable';
-    public const BUILTIN_TYPE_ITERABLE = 'iterable';
+    public const BUILTIN_TYPE_INT = BaseType::BUILTIN_TYPE_INT;
+    public const BUILTIN_TYPE_FLOAT = BaseType::BUILTIN_TYPE_FLOAT;
+    public const BUILTIN_TYPE_STRING = BaseType::BUILTIN_TYPE_STRING;
+    public const BUILTIN_TYPE_BOOL = BaseType::BUILTIN_TYPE_BOOL;
+    public const BUILTIN_TYPE_RESOURCE = BaseType::BUILTIN_TYPE_RESOURCE;
+    public const BUILTIN_TYPE_OBJECT = BaseType::BUILTIN_TYPE_OBJECT;
+    public const BUILTIN_TYPE_ARRAY = BaseType::BUILTIN_TYPE_ARRAY;
+    public const BUILTIN_TYPE_NULL = BaseType::BUILTIN_TYPE_NULL;
+    public const BUILTIN_TYPE_FALSE = BaseType::BUILTIN_TYPE_FALSE;
+    public const BUILTIN_TYPE_TRUE = BaseType::BUILTIN_TYPE_TRUE;
+    public const BUILTIN_TYPE_CALLABLE = BaseType::BUILTIN_TYPE_CALLABLE;
+    public const BUILTIN_TYPE_ITERABLE = BaseType::BUILTIN_TYPE_ITERABLE;
 
     /**
      * List of PHP builtin types.
@@ -63,12 +65,7 @@ class Type
         self::BUILTIN_TYPE_ITERABLE,
     ];
 
-    private string $builtinType;
-    private bool $nullable;
-    private ?string $class;
-    private bool $collection;
-    private array $collectionKeyType;
-    private array $collectionValueType;
+    private BaseType $internalType;
 
     /**
      * @param Type[]|Type|null $collectionKeyType
@@ -78,35 +75,29 @@ class Type
      */
     public function __construct(string $builtinType, bool $nullable = false, string $class = null, bool $collection = false, array|Type $collectionKeyType = null, array|Type $collectionValueType = null)
     {
-        if (!\in_array($builtinType, self::$builtinTypes)) {
-            throw new \InvalidArgumentException(sprintf('"%s" is not a valid PHP type.', $builtinType));
+        if (null !== $collectionKeyType && !is_array($collectionKeyType)) {
+            $collectionKeyType = [$collectionKeyType];
+        }
+        if (null !== $collectionValueType && !is_array($collectionValueType)) {
+            $collectionValueType = [$collectionValueType];
         }
 
-        $this->builtinType = $builtinType;
-        $this->nullable = $nullable;
-        $this->class = $class;
-        $this->collection = $collection;
-        $this->collectionKeyType = $this->validateCollectionArgument($collectionKeyType, 5, '$collectionKeyType') ?? [];
-        $this->collectionValueType = $this->validateCollectionArgument($collectionValueType, 6, '$collectionValueType') ?? [];
-    }
-
-    private function validateCollectionArgument(array|Type|null $collectionArgument, int $argumentIndex, string $argumentName): ?array
-    {
-        if (null === $collectionArgument) {
-            return null;
-        }
-
-        if (\is_array($collectionArgument)) {
-            foreach ($collectionArgument as $type) {
-                if (!$type instanceof self) {
-                    throw new \TypeError(sprintf('"%s()": Argument #%d (%s) must be of type "%s[]", "%s" or "null", array value "%s" given.', __METHOD__, $argumentIndex, $argumentName, self::class, self::class, get_debug_type($collectionArgument)));
-                }
+        $genericParameterTypes = [];
+        if (\count($collectionValueType ?? []) > 0) {
+            if (\count($collectionKeyType ?? []) > 0) {
+                $genericParameterTypes[] = $collectionKeyType;
             }
 
-            return $collectionArgument;
+            $genericParameterTypes[] = $collectionValueType;
         }
 
-        return [$collectionArgument];
+        $unionTypes = [];
+        if ($nullable) {
+            $builtinType = null;
+            $unionTypes = [$builtinType, self::BUILTIN_TYPE_NULL];
+        }
+
+        $this->internalType = new BaseType($builtinType, $class, $genericParameterTypes, $unionTypes);
     }
 
     /**
@@ -116,12 +107,12 @@ class Type
      */
     public function getBuiltinType(): string
     {
-        return $this->builtinType;
+        return $this->internalType->getBuiltinType();
     }
 
     public function isNullable(): bool
     {
-        return $this->nullable;
+        return $this->internalType->getBuiltinType();
     }
 
     /**
@@ -131,12 +122,12 @@ class Type
      */
     public function getClassName(): ?string
     {
-        return $this->class;
+        return $this->internalType->getClassName();
     }
 
     public function isCollection(): bool
     {
-        return $this->collection;
+        return $this->internalType->isCollection();
     }
 
     /**
@@ -148,7 +139,7 @@ class Type
      */
     public function getCollectionKeyTypes(): array
     {
-        return $this->collectionKeyType;
+        return $this->internalType->getCollectionKeyTypes();
     }
 
     /**
@@ -160,6 +151,6 @@ class Type
      */
     public function getCollectionValueTypes(): array
     {
-        return $this->collectionValueType;
+        return $this->internalType->getCollectionValueTypes();
     }
 }
