@@ -11,7 +11,10 @@
 
 namespace Symfony\Component\PropertyInfo;
 
-use Symfony\Component\TypeInfo\Type as BaseType;
+use Symfony\Component\TypeInfo\GenericType;
+use Symfony\Component\TypeInfo\IntersectionType;
+use Symfony\Component\TypeInfo\Type as TypeInfoType;
+use Symfony\Component\TypeInfo\UnionType;
 
 /**
  * Type value object (immutable).
@@ -22,25 +25,25 @@ use Symfony\Component\TypeInfo\Type as BaseType;
  */
 class Type
 {
-    public const BUILTIN_TYPE_INT = BaseType::BUILTIN_TYPE_INT;
-    public const BUILTIN_TYPE_FLOAT = BaseType::BUILTIN_TYPE_FLOAT;
-    public const BUILTIN_TYPE_STRING = BaseType::BUILTIN_TYPE_STRING;
-    public const BUILTIN_TYPE_BOOL = BaseType::BUILTIN_TYPE_BOOL;
-    public const BUILTIN_TYPE_RESOURCE = BaseType::BUILTIN_TYPE_RESOURCE;
-    public const BUILTIN_TYPE_OBJECT = BaseType::BUILTIN_TYPE_OBJECT;
-    public const BUILTIN_TYPE_ARRAY = BaseType::BUILTIN_TYPE_ARRAY;
-    public const BUILTIN_TYPE_NULL = BaseType::BUILTIN_TYPE_NULL;
-    public const BUILTIN_TYPE_FALSE = BaseType::BUILTIN_TYPE_FALSE;
-    public const BUILTIN_TYPE_TRUE = BaseType::BUILTIN_TYPE_TRUE;
-    public const BUILTIN_TYPE_CALLABLE = BaseType::BUILTIN_TYPE_CALLABLE;
-    public const BUILTIN_TYPE_ITERABLE = BaseType::BUILTIN_TYPE_ITERABLE;
+    public const BUILTIN_TYPE_INT = TypeInfoType::BUILTIN_TYPE_INT;
+    public const BUILTIN_TYPE_FLOAT = TypeInfoType::BUILTIN_TYPE_FLOAT;
+    public const BUILTIN_TYPE_STRING = TypeInfoType::BUILTIN_TYPE_STRING;
+    public const BUILTIN_TYPE_BOOL = TypeInfoType::BUILTIN_TYPE_BOOL;
+    public const BUILTIN_TYPE_RESOURCE = TypeInfoType::BUILTIN_TYPE_RESOURCE;
+    public const BUILTIN_TYPE_OBJECT = TypeInfoType::BUILTIN_TYPE_OBJECT;
+    public const BUILTIN_TYPE_ARRAY = TypeInfoType::BUILTIN_TYPE_ARRAY;
+    public const BUILTIN_TYPE_NULL = TypeInfoType::BUILTIN_TYPE_NULL;
+    public const BUILTIN_TYPE_FALSE = TypeInfoType::BUILTIN_TYPE_FALSE;
+    public const BUILTIN_TYPE_TRUE = TypeInfoType::BUILTIN_TYPE_TRUE;
+    public const BUILTIN_TYPE_CALLABLE = TypeInfoType::BUILTIN_TYPE_CALLABLE;
+    public const BUILTIN_TYPE_ITERABLE = TypeInfoType::BUILTIN_TYPE_ITERABLE;
 
     /**
      * List of PHP builtin types.
      *
      * @var string[]
      */
-    public static array $builtinTypes = BaseType::BUILTIN_TYPES;
+    public static array $builtinTypes = TypeInfoType::BUILTIN_TYPES;
 
     /**
      * List of PHP builtin collection types.
@@ -52,7 +55,7 @@ class Type
         self::BUILTIN_TYPE_ITERABLE,
     ];
 
-    private BaseType $internalType;
+    private TypeInfoType $internalType;
 
     /**
      * @param Type[]|Type|null $collectionKeyType
@@ -60,38 +63,37 @@ class Type
      *
      * @throws \InvalidArgumentException
      */
-    public function __construct(
-        string $builtinType,
-        bool $nullable = false,
-        string $class = null,
-        bool $collection = false,
-        array|Type $collectionKeyType = null,
-        array|Type $collectionValueType = null,
-    )
+    public function __construct(string $builtinType, bool $nullable = false, string $class = null, bool $collection = false, array|Type $collectionKeyType = null, array|Type $collectionValueType = null)
     {
-        if (null !== $collectionKeyType && !is_array($collectionKeyType)) {
-            $collectionKeyType = [$collectionKeyType];
+        if (null !== $collectionKeyType) {
+            $collectionKeyType = (array) $collectionKeyType;
         }
-        if (null !== $collectionValueType && !is_array($collectionValueType)) {
-            $collectionValueType = [$collectionValueType];
+        if (null !== $collectionValueType) {
+            $collectionValueType = (array) $collectionValueType;
         }
 
         $genericParameterTypes = [];
-        if (\count($collectionValueType ?? []) > 0) {
-            if (\count($collectionKeyType ?? []) > 0) {
-                $genericParameterTypes[] = $collectionKeyType;
+        if (\count($collectionValueType ?? [])) {
+            if (\count($collectionKeyType ?? [])) {
+                $genericParameterTypes[] = $collectionKeyType->getTypeInfoType();
             }
 
-            $genericParameterTypes[] = $collectionValueType;
+            $genericParameterTypes[] = $collectionValueType->getTypeInfoType();
         }
 
-        $unionTypes = [];
+        $this->internalType = new TypeInfoType(
+            builtinType: $builtinType,
+            className: $class,
+            isCollection: $collection,
+        );
+
+        if (\count($genericParameterTypes)) {
+            $this->internalType = new GenericType($this->internalType, ...$genericParameterTypes);
+        }
+
         if ($nullable) {
-            $builtinType = null;
-            $unionTypes = [$builtinType, self::BUILTIN_TYPE_NULL];
+            $this->internalType = new UnionType(new TypeInfoType(TypeInfoType::BUILTIN_TYPE_NULL), $this->internalType);
         }
-
-        $this->internalType = new BaseType($builtinType, $class, $genericParameterTypes, $unionTypes);
     }
 
     /**
@@ -106,7 +108,7 @@ class Type
 
     public function isNullable(): bool
     {
-        return $this->internalType->getBuiltinType();
+        return $this->internalType->isNullable();
     }
 
     /**
@@ -116,6 +118,10 @@ class Type
      */
     public function getClassName(): ?string
     {
+        if (!$this->internalType->isObject()) {
+            return null;
+        }
+
         return $this->internalType->getClassName();
     }
 
@@ -133,7 +139,11 @@ class Type
      */
     public function getCollectionKeyTypes(): array
     {
-        return $this->internalType->getCollectionKeyTypes();
+        if (!$this->internalType->isCollection()) {
+            return [];
+        }
+
+        return (array) $this->convertFromTypeInfoType($this->internalType->getCollectionKeyType());
     }
 
     /**
@@ -145,6 +155,49 @@ class Type
      */
     public function getCollectionValueTypes(): array
     {
-        return $this->internalType->getCollectionValueTypes();
+        if (!$this->internalType->isCollection()) {
+            return [];
+        }
+
+        return (array) $this->convertFromTypeInfoType($this->internalType->getCollectionValueType());
+    }
+
+    private function getTypeInfoType(): TypeInfoType
+    {
+        return $this->internalType;
+    }
+
+    /**
+     * @return self|list<self>
+     */
+    private function convertFromTypeInfoType(TypeInfoType $typeInfoType): self|array
+    {
+        if ($typeInfoType instanceof UnionType) {
+            return array_map($this->convertFromTypeInfoType(...), $typeInfoType->getTypes());
+        }
+
+        if ($typeInfoType instanceof IntersectionType) {
+            return array_map($this->convertFromTypeInfoType(...), $typeInfoType->getTypes());
+        }
+
+        $className = null;
+        if ($typeInfoType->isObject()) {
+            $className = $typeInfoType->getClassName();
+        }
+
+        $collectionKeyType = $collectionValueType = null;
+        if ($typeInfoType instanceof GenericType && $typeInfoType->isCollection()) {
+            $collectionKeyType = $this->convertFromTypeInfoType($typeInfoType->getCollectionKeyType());
+            $collectionValueType = $this->convertFromTypeInfoType($typeInfoType->getCollectionValueType());
+        }
+
+        return new self(
+            builtinType: $typeInfoType->getBuiltinType(),
+            nullable: $typeInfoType->isNullable(),
+            class: $className,
+            collection: $typeInfoType->isCollection(),
+            collectionKeyType: $collectionKeyType,
+            collectionValueType: $collectionValueType,
+        );
     }
 }

@@ -58,6 +58,7 @@ readonly class Type implements \Stringable
         ?string $builtinType = null,
         ?string $className = null,
         ?self $enumBackingType = null,
+        ?bool $isCollection = null,
     ) {
         $isCollection = false;
         $isEnum = $isBackedEnum = false;
@@ -86,8 +87,8 @@ readonly class Type implements \Stringable
             $isBackedEnum = true;
         }
 
-        if (in_array($builtinType, [self::BUILTIN_TYPE_ARRAY, self::BUILTIN_TYPE_ITERABLE])) {
-            $isCollection = true;
+        if (null === $isCollection) {
+            $isCollection = in_array($builtinType, [self::BUILTIN_TYPE_ARRAY, self::BUILTIN_TYPE_ITERABLE]);
         }
 
         $this->builtinType = $builtinType;
