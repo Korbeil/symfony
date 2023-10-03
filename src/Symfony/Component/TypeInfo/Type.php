@@ -3,9 +3,12 @@
 namespace Symfony\Component\TypeInfo;
 
 use Symfony\Component\TypeInfo\Exception\InvalidArgumentException;
+use Symfony\Component\TypeInfo\Exception\LogicException;
 
-class Type
+readonly class Type implements \Stringable
 {
+    use TypeFactoryTrait;
+
     public const BUILTIN_TYPE_INT = 'int';
     public const BUILTIN_TYPE_FLOAT = 'float';
     public const BUILTIN_TYPE_STRING = 'string';
@@ -13,19 +16,14 @@ class Type
     public const BUILTIN_TYPE_RESOURCE = 'resource';
     public const BUILTIN_TYPE_OBJECT = 'object';
     public const BUILTIN_TYPE_ARRAY = 'array';
-    public const BUILTIN_TYPE_MIXED = 'mixed';
     public const BUILTIN_TYPE_NULL = 'null';
     public const BUILTIN_TYPE_FALSE = 'false';
     public const BUILTIN_TYPE_TRUE = 'true';
     public const BUILTIN_TYPE_CALLABLE = 'callable';
     public const BUILTIN_TYPE_ITERABLE = 'iterable';
+    public const BUILTIN_TYPE_MIXED = 'mixed';
 
-    /**
-     * List of PHP builtin types.
-     *
-     * @var string[]
-     */
-    public static array $builtinTypes = [
+    public const BUILTIN_TYPES = [
         self::BUILTIN_TYPE_INT,
         self::BUILTIN_TYPE_FLOAT,
         self::BUILTIN_TYPE_STRING,
@@ -33,65 +31,73 @@ class Type
         self::BUILTIN_TYPE_RESOURCE,
         self::BUILTIN_TYPE_OBJECT,
         self::BUILTIN_TYPE_ARRAY,
-        self::BUILTIN_TYPE_CALLABLE,
+        self::BUILTIN_TYPE_NULL,
         self::BUILTIN_TYPE_FALSE,
         self::BUILTIN_TYPE_TRUE,
-        self::BUILTIN_TYPE_NULL,
+        self::BUILTIN_TYPE_CALLABLE,
         self::BUILTIN_TYPE_ITERABLE,
         self::BUILTIN_TYPE_MIXED,
     ];
 
-    /**
-     * List of PHP builtin collection types.
-     *
-     * @var string[]
-     */
-    public static array $builtinCollectionTypes = [
-        self::BUILTIN_TYPE_ARRAY,
-        self::BUILTIN_TYPE_ITERABLE,
-    ];
+    private string $builtinType;
 
-    private bool $collection = false;
-    private bool $enum = false;
+    /**
+     * @var class-string|null
+     */
+    private ?string $className;
+
+    private ?self $enumBackingType;
+
+    private bool $isCollection;
+
+    private bool $isEnum;
+
+    private bool $isBackedEnum;
 
     public function __construct(
-        private ?string $builtinType = null,
-        private readonly ?string $className = null,
-        private readonly array $genericParameterTypes = [],
-        private readonly array $unionTypes = [],
-        private readonly array $intersectionTypes = [],
-        private readonly ?self $enumBackingType = null,
+        ?string $builtinType = null,
+        ?string $className = null,
+        ?self $enumBackingType = null,
     ) {
-        if (!\in_array($builtinType, self::$builtinTypes)) {
+        $isCollection = false;
+        $isEnum = $isBackedEnum = false;
+
+        if (null !== $className) {
+            $builtinType = self::BUILTIN_TYPE_OBJECT;
+        }
+
+        if (!\in_array($builtinType, self::BUILTIN_TYPES)) {
             throw new InvalidArgumentException(sprintf('"%s" is not a valid PHP type.', $builtinType));
         }
 
-        if (1 === \count($this->unionTypes)) {
-            throw new InvalidArgumentException(sprintf('Cannot define only one union type for "%s" type.', $this->builtinType));
-        }
-
-        if (1 === \count($this->intersectionTypes)) {
-            throw new InvalidArgumentException(sprintf('Cannot define only one intersection type for "%s" type.', $this->builtinType));
-        }
-
-        if (null !== $this->className) {
-            $this->builtinType = self::BUILTIN_TYPE_OBJECT;
-        }
-
-        if (in_array($this->builtinType, self::$builtinCollectionTypes)) {
-            $this->collection = true;
+        if (self::BUILTIN_TYPE_OBJECT === $builtinType && null === $className) {
+            $className = \stdClass::class;
         }
 
         if (is_subclass_of($className, \UnitEnum::class)) {
-            $this->enum = true;
+            $isEnum = true;
         }
+
+        if (null !== $enumBackingType) {
+            if (!is_subclass_of($className, \BackedEnum::class)) {
+                throw new InvalidArgumentException(sprintf('Cannot set an enum backing type as "%s" is not a valid backed enum.', $className));
+            }
+
+            $isBackedEnum = true;
+        }
+
+        if (in_array($builtinType, [self::BUILTIN_TYPE_ARRAY, self::BUILTIN_TYPE_ITERABLE])) {
+            $isCollection = true;
+        }
+
+        $this->builtinType = $builtinType;
+        $this->className = $className;
+        $this->enumBackingType = $enumBackingType;
+        $this->isCollection = $isCollection;
+        $this->isEnum = $isEnum;
+        $this->isBackedEnum = $isBackedEnum;
     }
 
-    /**
-     * Gets built-in type.
-     *
-     * Can be bool, int, float, string, array, object, resource, null, callback or iterable.
-     */
     public function getBuiltinType(): string
     {
         return $this->builtinType;
@@ -99,73 +105,107 @@ class Type
 
     public function isNullable(): bool
     {
-        return self::BUILTIN_TYPE_NULL === $this->builtinType || (\count($this->unionTypes) > 0 && in_array(self::BUILTIN_TYPE_NULL, $this->unionTypes));
+        return self::BUILTIN_TYPE_NULL === $this->builtinType;
+    }
+
+    public function isScalar(): bool
+    {
+        return in_array($this->builtinType, [
+            self::BUILTIN_TYPE_INT,
+            self::BUILTIN_TYPE_FLOAT,
+            self::BUILTIN_TYPE_STRING,
+            self::BUILTIN_TYPE_BOOL,
+            self::BUILTIN_TYPE_NULL,
+            self::BUILTIN_TYPE_FALSE,
+            self::BUILTIN_TYPE_TRUE,
+        ]);
+    }
+
+    public function isObject(): bool
+    {
+        return self::BUILTIN_TYPE_OBJECT === $this->builtinType;
     }
 
     /**
-     * Gets the class name.
+     * @return class-string
      *
-     * Only applicable if the built-in type is object.
+     * @throws LogicException
      */
-    public function getClassName(): ?string
+    public function getClassName(): string
     {
-        return $this->className;
-    }
+        if (!$this->isObject()) {
+            throw new LogicException(sprintf('Cannot get class on "%s" type as it\'s not an object.', (string) $this));
+        }
 
-    public function isCollection(): bool
-    {
-        return $this->collection;
+        return $this->className;
     }
 
     public function isEnum(): bool
     {
-        return $this->enum;
+        return $this->isEnum;
     }
 
-    public function getEnumBackingType(): ?self
+    public function isBackedEnum(): bool
     {
+        return $this->isBackedEnum;
+    }
+
+    /**
+     * @throws LogicException
+     */
+    public function getEnumBackingType(): self
+    {
+        if (!$this->isBackedEnum()) {
+            throw new LogicException(sprintf('Cannot get class on "%s" type as it\'s not an enum.', (string) $this));
+        }
+
         return $this->enumBackingType;
     }
 
-    /**
-     * Gets collection key types.
-     *
-     * Only applicable for a collection type.
-     *
-     * @return Type[]
-     */
-    public function getCollectionKeyTypes(): array
+    public function isCollection(): bool
     {
-        if (!$this->collection) {
-            return [];
-        }
-
-        if (\count($this->genericParameterTypes) > 1) {
-            return $this->genericParameterTypes[0];
-        }
-
-        return [new self(self::BUILTIN_TYPE_INT)];
+        return $this->isCollection;
     }
 
     /**
-     * Gets collection value types.
-     *
-     * Only applicable for a collection type.
-     *
-     * @return Type[]
+     * @throws LogicException
      */
-    public function getCollectionValueTypes(): array
+    public function getCollectionKeyType(): self
     {
-        if (!$this->collection) {
-            return [];
+        if (!$this->isCollection()) {
+            throw new LogicException(sprintf('Cannot get collection key type on "%s" type as it\'s not a collection.', (string) $this));
         }
 
-        $genericParameterTypesCount = \count($this->genericParameterTypes);
+        return new UnionType(
+            new self(builtinType: self::BUILTIN_TYPE_INT),
+            new self(builtinType: self::BUILTIN_TYPE_STRING),
+        );
+    }
 
-        return match ($genericParameterTypesCount) {
-            2 => [$this->genericParameterTypes[1]],
-            1 => [$this->genericParameterTypes[0]],
-            default => [new self(self::BUILTIN_TYPE_MIXED)],
-        };
+    /**
+     * @throws LogicException
+     */
+    public function getCollectionValueType(): self
+    {
+        if (!$this->isCollection()) {
+            throw new LogicException(sprintf('Cannot get collection value type on "%s" type as it\'s not a collection.', (string) $this));
+        }
+
+        return new self(builtinType: self::BUILTIN_TYPE_MIXED);
+    }
+
+    public function isList(): bool
+    {
+        return $this->isCollection() && self::BUILTIN_TYPE_INT === $this->getCollectionKeyType()->getBuiltinType();
+    }
+
+    public function isDict(): bool
+    {
+        return $this->isCollection() && self::BUILTIN_TYPE_STRING === $this->getCollectionKeyType()->getBuiltinType();
+    }
+
+    public function __toString(): string
+    {
+        return $this->builtinType;
     }
 }

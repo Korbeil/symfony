@@ -40,20 +40,7 @@ class Type
      *
      * @var string[]
      */
-    public static array $builtinTypes = [
-        self::BUILTIN_TYPE_INT,
-        self::BUILTIN_TYPE_FLOAT,
-        self::BUILTIN_TYPE_STRING,
-        self::BUILTIN_TYPE_BOOL,
-        self::BUILTIN_TYPE_RESOURCE,
-        self::BUILTIN_TYPE_OBJECT,
-        self::BUILTIN_TYPE_ARRAY,
-        self::BUILTIN_TYPE_CALLABLE,
-        self::BUILTIN_TYPE_FALSE,
-        self::BUILTIN_TYPE_TRUE,
-        self::BUILTIN_TYPE_NULL,
-        self::BUILTIN_TYPE_ITERABLE,
-    ];
+    public static array $builtinTypes = BaseType::BUILTIN_TYPES;
 
     /**
      * List of PHP builtin collection types.
@@ -73,7 +60,14 @@ class Type
      *
      * @throws \InvalidArgumentException
      */
-    public function __construct(string $builtinType, bool $nullable = false, string $class = null, bool $collection = false, array|Type $collectionKeyType = null, array|Type $collectionValueType = null)
+    public function __construct(
+        string $builtinType,
+        bool $nullable = false,
+        string $class = null,
+        bool $collection = false,
+        array|Type $collectionKeyType = null,
+        array|Type $collectionValueType = null,
+    )
     {
         if (null !== $collectionKeyType && !is_array($collectionKeyType)) {
             $collectionKeyType = [$collectionKeyType];
