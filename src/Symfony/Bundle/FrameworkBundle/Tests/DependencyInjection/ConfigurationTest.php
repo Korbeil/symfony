@@ -623,6 +623,9 @@ class ConfigurationTest extends TestCase
                 'throw_exception_on_invalid_index' => false,
                 'throw_exception_on_invalid_property_path' => true,
             ],
+            'type_info' => [
+                'enabled' => !class_exists(FullStack::class),
+            ],
             'property_info' => [
                 'enabled' => !class_exists(FullStack::class),
             ],
