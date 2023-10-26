@@ -23,6 +23,10 @@ final class BuiltinType extends Type
     public function __construct(
         private readonly BuiltinTypeEnum $builtinType,
     ) {
+        // BC Layer for Symfony\Component\PropertyInfo\Type.
+        if (\in_array($builtinType, [BuiltinTypeEnum::Mixed, BuiltinTypeEnum::Null], true)) {
+            $this->setNullable(true);
+        }
     }
 
     public function getBuiltinType(): BuiltinTypeEnum

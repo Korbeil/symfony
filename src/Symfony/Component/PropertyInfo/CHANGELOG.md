@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+7.1
+---
+
+ * Deprecate the `Type` class, use `Symfony\Component\TypeInfo\Type` class of `symfony/type-info` component instead
+
 6.4
 ---
 

@@ -19,8 +19,10 @@ use phpDocumentor\Reflection\Types\Context;
 use phpDocumentor\Reflection\Types\ContextFactory;
 use Symfony\Component\PropertyInfo\PropertyDescriptionExtractorInterface;
 use Symfony\Component\PropertyInfo\PropertyTypeExtractorInterface;
-use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\PropertyInfo\Util\BackwardCompatibilityHelper;
 use Symfony\Component\PropertyInfo\Util\PhpDocTypeHelper;
+use Symfony\Component\TypeInfo\Type;
+use Symfony\Component\TypeInfo\Type\ObjectType;
 
 /**
  * Extracts data using a PHPDoc parser.
@@ -111,7 +113,7 @@ class PhpDocExtractor implements PropertyDescriptionExtractorInterface, Property
         return '' === $contents ? null : $contents;
     }
 
-    public function getTypes(string $class, string $property, array $context = []): ?array
+    public function getType(string $class, string $property, array $context = []): ?Type
     {
         /** @var $docBlock DocBlock */
         [$docBlock, $source, $prefix] = $this->getDocBlock($class, $property);
@@ -130,41 +132,54 @@ class PhpDocExtractor implements PropertyDescriptionExtractorInterface, Property
         /** @var DocBlock\Tags\Var_|DocBlock\Tags\Return_|DocBlock\Tags\Param $tag */
         foreach ($docBlock->getTagsByName($tag) as $tag) {
             if ($tag && !$tag instanceof InvalidTag && null !== $tag->getType()) {
-                foreach ($this->phpDocTypeHelper->getTypes($tag->getType()) as $type) {
-                    switch ($type->getClassName()) {
-                        case 'self':
-                        case 'static':
-                            $resolvedClass = $class;
-                            break;
+                $type = $this->phpDocTypeHelper->getType($tag->getType());
 
-                        case 'parent':
-                            if (false !== $resolvedClass = $parentClass ??= get_parent_class($class)) {
-                                break;
-                            }
-                            // no break
+                if (!$type instanceof ObjectType) {
+                    $types[] = $type;
 
-                        default:
-                            $types[] = $type;
-                            continue 2;
-                    }
-
-                    $types[] = new Type(Type::BUILTIN_TYPE_OBJECT, $type->isNullable(), $resolvedClass, $type->isCollection(), $type->getCollectionKeyTypes(), $type->getCollectionValueTypes());
+                    continue;
                 }
+
+                switch ($type->getClassName()) {
+                    case 'self':
+                    case 'static':
+                        $resolvedClass = $class;
+                        break;
+
+                    case 'parent':
+                        if (false !== $resolvedClass = $parentClass ??= get_parent_class($class)) {
+                            break;
+                        }
+                        // no break
+
+                    default:
+                        $types[] = $type;
+                        continue 2;
+                }
+
+                $types[] = $type->isNullable() ? Type::nullable(Type::object($resolvedClass)) : Type::object($resolvedClass);
             }
         }
 
-        if (!isset($types[0])) {
+        if (null === ($type = $types[0] ?? null)) {
             return null;
         }
 
         if (!\in_array($prefix, $this->arrayMutatorPrefixes)) {
-            return $types;
+            return $type;
         }
 
-        return [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), $types[0])];
+        return Type::list($type);
     }
 
-    public function getTypesFromConstructor(string $class, string $property): ?array
+    public function getTypes(string $class, string $property, array $context = []): ?array
+    {
+        trigger_deprecation('symfony/property-info', '7.1', 'The "%s()" method is deprecated. Use "%s::getType()" instead.', __METHOD__, self::class);
+
+        return BackwardCompatibilityHelper::convertTypeToLegacyTypes($this->getType($class, $property, $context));
+    }
+
+    public function getTypeFromConstructor(string $class, string $property): ?Type
     {
         $docBlock = $this->getDocBlockFromConstructor($class, $property);
 
@@ -176,15 +191,18 @@ class PhpDocExtractor implements PropertyDescriptionExtractorInterface, Property
         /** @var DocBlock\Tags\Var_|DocBlock\Tags\Return_|DocBlock\Tags\Param $tag */
         foreach ($docBlock->getTagsByName('param') as $tag) {
             if ($tag && null !== $tag->getType()) {
-                $types[] = $this->phpDocTypeHelper->getTypes($tag->getType());
+                $types[] = $this->phpDocTypeHelper->getType($tag->getType());
             }
         }
 
-        if (!isset($types[0]) || [] === $types[0]) {
-            return null;
-        }
+        return $types[0] ?? null;
+    }
 
-        return array_merge([], ...$types);
+    public function getTypesFromConstructor(string $class, string $property): ?array
+    {
+        trigger_deprecation('symfony/property-info', '7.1', 'The "%s()" method is deprecated. Use "%s::getTypeFromConstructor()" instead.', __METHOD__, self::class);
+
+        return BackwardCompatibilityHelper::convertTypeToLegacyTypes($this->getTypeFromConstructor($class, $property));
     }
 
     private function getDocBlockFromConstructor(string $class, string $property): ?DocBlock

@@ -14,16 +14,24 @@ namespace Symfony\Component\PropertyInfo\Tests\Extractor;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\PropertyInfo\Extractor\PhpDocExtractor;
 use Symfony\Component\PropertyInfo\Extractor\PhpStanExtractor;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\ConstructorDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\ConstructorDummyWithoutDocBlock;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\DefaultValue;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\DockBlockFallback;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\DummyNamespace;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\DummyUnionType;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\IntRangeDummy;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\InvalidDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\Php80Dummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\Php80PromotedDummy;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\PhpStanPseudoTypesDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\RootDummy\RootDummyItem;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\TraitUsage\DummyUsedInTrait;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\TraitUsage\DummyUsingTrait;
-use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\TypeInfo\Exception\LogicException;
+use Symfony\Component\TypeInfo\Type;
 
 require_once __DIR__.'/../Fixtures/Extractor/DummyNamespace.php';
 
@@ -44,434 +52,385 @@ class PhpStanExtractorTest extends TestCase
     /**
      * @dataProvider typesProvider
      */
-    public function testExtract($property, array $type = null)
+    public function testExtract(string $property, ?Type $type)
     {
-        $this->assertEquals($type, $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy', $property));
+        $this->assertEquals($type, $this->extractor->getType(Dummy::class, $property));
+    }
+
+    public static function typesProvider(): iterable
+    {
+        yield ['foo', null];
+        yield ['bar', Type::string()];
+        yield ['baz', Type::int()];
+        yield ['foo2', Type::float()];
+        yield ['foo3', Type::callable()];
+        yield ['foo5', Type::mixed()];
+        yield ['files', Type::union(Type::list(Type::object(\SplFileInfo::class)), Type::resource()), null, null];
+        yield ['bal', Type::object(\DateTimeImmutable::class)];
+        yield ['parent', Type::object(ParentDummy::class)];
+        yield ['collection', Type::list(Type::object(\DateTimeImmutable::class))];
+        yield ['nestedCollection', Type::list(Type::list(Type::string()))];
+        yield ['mixedCollection', Type::list()];
+        yield ['a', Type::int()];
+        yield ['b', Type::nullable(Type::object(ParentDummy::class))];
+        yield ['c', Type::nullable(Type::bool())];
+        yield ['d', Type::bool()];
+        yield ['e', Type::list(Type::resource())];
+        yield ['f', Type::list(Type::object(\DateTimeImmutable::class))];
+        yield ['g', Type::nullable(Type::array())];
+        yield ['h', Type::nullable(Type::string())];
+        yield ['i', Type::union(Type::int(), Type::string(), Type::null())];
+        yield ['j', Type::nullable(Type::object(\DateTimeImmutable::class))];
+        yield ['nullableCollectionOfNonNullableElements', Type::nullable(Type::list(Type::int()))];
+        yield ['donotexist', null];
+        yield ['staticGetter', null];
+        yield ['staticSetter', null];
+        yield ['emptyVar', null];
+        yield ['arrayWithKeys', Type::dict(Type::string())];
+        yield ['arrayOfMixed', Type::dict(Type::mixed())];
+        yield ['listOfStrings', Type::list(Type::string())];
+        yield ['self', Type::object(Dummy::class)];
+        yield ['rootDummyItems', Type::list(Type::object(RootDummyItem::class))];
+        yield ['rootDummyItem', Type::object(RootDummyItem::class)];
     }
 
     public function testParamTagTypeIsOmitted()
     {
-        $this->assertNull($this->extractor->getTypes(PhpStanOmittedParamTagTypeDocBlock::class, 'omittedType'));
-    }
-
-    public static function invalidTypesProvider()
-    {
-        return [
-            'pub' => ['pub'],
-            'stat' => ['stat'],
-            'foo' => ['foo'],
-            'bar' => ['bar'],
-        ];
+        $this->assertNull($this->extractor->getType(PhpStanOmittedParamTagTypeDocBlock::class, 'omittedType'));
     }
 
     /**
      * @dataProvider invalidTypesProvider
      */
-    public function testInvalid($property)
+    public function testInvalid(string $property)
     {
-        $this->assertNull($this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\InvalidDummy', $property));
+        $this->assertNull($this->extractor->getType(InvalidDummy::class, $property));
+    }
+
+    /**
+     * @return iterable<array{0: string}>
+     */
+    public static function invalidTypesProvider(): iterable
+    {
+        yield 'pub' => ['pub'];
+        yield 'stat' => ['stat'];
+        yield 'foo' => ['foo'];
+        yield 'bar' => ['bar'];
     }
 
     /**
      * @dataProvider typesWithNoPrefixesProvider
      */
-    public function testExtractTypesWithNoPrefixes($property, array $type = null)
+    public function testExtractTypesWithNoPrefixes(string $property, ?Type $type)
     {
         $noPrefixExtractor = new PhpStanExtractor([], [], []);
 
-        $this->assertEquals($type, $noPrefixExtractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy', $property));
+        $this->assertEquals($type, $noPrefixExtractor->getType(Dummy::class, $property));
     }
 
-    public static function typesProvider()
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function typesWithNoPrefixesProvider(): iterable
     {
-        return [
-            ['foo', null],
-            ['bar', [new Type(Type::BUILTIN_TYPE_STRING)]],
-            ['baz', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['foo2', [new Type(Type::BUILTIN_TYPE_FLOAT)]],
-            ['foo3', [new Type(Type::BUILTIN_TYPE_CALLABLE)]],
-            ['foo4', [new Type(Type::BUILTIN_TYPE_NULL)]],
-            ['foo5', null],
-            [
-                'files',
-                [
-                    new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'SplFileInfo')),
-                    new Type(Type::BUILTIN_TYPE_RESOURCE),
-                ],
-            ],
-            ['bal', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable')]],
-            ['parent', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy')]],
-            ['collection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable'))]],
-            ['nestedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING, false)))]],
-            ['mixedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_INT)], null)]],
-            ['a', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['b', [new Type(Type::BUILTIN_TYPE_OBJECT, true, 'Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy')]],
-            ['c', [new Type(Type::BUILTIN_TYPE_BOOL, true)]],
-            ['d', [new Type(Type::BUILTIN_TYPE_BOOL)]],
-            ['e', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_RESOURCE))]],
-            ['f', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable'))]],
-            ['g', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true)]],
-            ['h', [new Type(Type::BUILTIN_TYPE_STRING, true)]],
-            ['j', [new Type(Type::BUILTIN_TYPE_OBJECT, true, 'DateTimeImmutable')]],
-            ['nullableCollectionOfNonNullableElements', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_INT, false))]],
-            ['donotexist', null],
-            ['staticGetter', null],
-            ['staticSetter', null],
-            ['emptyVar', null],
-            ['arrayWithKeys', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_STRING))]],
-            ['arrayOfMixed', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_STRING), null)]],
-            ['listOfStrings', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING))]],
-            ['self', [new Type(Type::BUILTIN_TYPE_OBJECT, false, Dummy::class)]],
-            ['rootDummyItems', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, RootDummyItem::class))]],
-            ['rootDummyItem', [new Type(Type::BUILTIN_TYPE_OBJECT, false, RootDummyItem::class)]],
-        ];
+        yield ['foo', null];
+        yield ['bar', Type::string()];
+        yield ['baz', Type::int()];
+        yield ['foo2', Type::float()];
+        yield ['foo3', Type::callable()];
+        yield ['foo5', Type::mixed()];
+        yield ['files', Type::union(Type::list(Type::object(\SplFileInfo::class)), Type::resource())];
+        yield ['bal', Type::object(\DateTimeImmutable::class)];
+        yield ['parent', Type::object(ParentDummy::class)];
+        yield ['collection', Type::list(Type::object(\DateTimeImmutable::class))];
+        yield ['nestedCollection', Type::list(Type::list(Type::string()))];
+        yield ['mixedCollection', Type::list()];
+        yield ['a', null];
+        yield ['b', null];
+        yield ['c', null];
+        yield ['d', null];
+        yield ['e', null];
+        yield ['f', null];
+        yield ['g', Type::nullable(Type::array())];
+        yield ['h', Type::nullable(Type::string())];
+        yield ['i', Type::union(Type::int(), Type::string(), Type::null())];
+        yield ['j', Type::nullable(Type::object(\DateTimeImmutable::class))];
+        yield ['nullableCollectionOfNonNullableElements', Type::nullable(Type::list(Type::int()))];
+        yield ['donotexist', null];
+        yield ['staticGetter', null];
+        yield ['staticSetter', null];
     }
 
     /**
      * @dataProvider provideCollectionTypes
      */
-    public function testExtractCollection($property, array $type = null)
+    public function testExtractCollection($property, ?Type $type)
     {
         $this->testExtract($property, $type);
     }
 
-    public static function provideCollectionTypes()
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function provideCollectionTypes(): iterable
     {
-        return [
-            ['iteratorCollection', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Iterator', true, null, new Type(Type::BUILTIN_TYPE_STRING))]],
-            ['iteratorCollectionWithKey', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Iterator', true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING))]],
-            [
-                'nestedIterators',
-                [new Type(
-                    Type::BUILTIN_TYPE_OBJECT,
-                    false,
-                    'Iterator',
-                    true,
-                    new Type(Type::BUILTIN_TYPE_INT),
-                    new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Iterator', true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING))
-                )],
-            ],
-            [
-                'arrayWithKeys',
-                [new Type(
-                    Type::BUILTIN_TYPE_ARRAY,
-                    false,
-                    null,
-                    true,
-                    new Type(Type::BUILTIN_TYPE_STRING),
-                    new Type(Type::BUILTIN_TYPE_STRING)
-                )],
-            ],
-            [
-                'arrayWithKeysAndComplexValue',
-                [new Type(
-                    Type::BUILTIN_TYPE_ARRAY,
-                    false,
-                    null,
-                    true,
-                    new Type(Type::BUILTIN_TYPE_STRING),
-                    new Type(
-                        Type::BUILTIN_TYPE_ARRAY,
-                        true,
-                        null,
-                        true,
-                        new Type(Type::BUILTIN_TYPE_INT),
-                        new Type(Type::BUILTIN_TYPE_STRING, true)
-                    )
-                )],
-            ],
-        ];
+        yield ['iteratorCollection', Type::collection(Type::object(\Iterator::class), Type::string())];
+        yield ['iteratorCollectionWithKey', Type::collection(Type::object(\Iterator::class), Type::string(), Type::int())];
+        yield ['nestedIterators', Type::collection(Type::object(\Iterator::class), Type::collection(Type::object(\Iterator::class), Type::string(), Type::int()), Type::int())];
+        yield ['arrayWithKeys', Type::dict(Type::string()), null, null];
+        yield ['arrayWithKeysAndComplexValue', Type::dict(Type::nullable(Type::list(Type::nullable(Type::string())))), null, null];
     }
 
     /**
      * @dataProvider typesWithCustomPrefixesProvider
      */
-    public function testExtractTypesWithCustomPrefixes($property, array $type = null)
+    public function testExtractTypesWithCustomPrefixes(string $property, ?Type $type)
     {
         $customExtractor = new PhpStanExtractor(['add', 'remove'], ['is', 'can']);
 
-        $this->assertEquals($type, $customExtractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy', $property));
+        $this->assertEquals($type, $customExtractor->getType(Dummy::class, $property));
     }
 
-    public static function typesWithCustomPrefixesProvider()
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function typesWithCustomPrefixesProvider(): iterable
     {
-        return [
-            ['foo', null],
-            ['bar', [new Type(Type::BUILTIN_TYPE_STRING)]],
-            ['baz', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['foo2', [new Type(Type::BUILTIN_TYPE_FLOAT)]],
-            ['foo3', [new Type(Type::BUILTIN_TYPE_CALLABLE)]],
-            ['foo4', [new Type(Type::BUILTIN_TYPE_NULL)]],
-            ['foo5', null],
-            [
-                'files',
-                [
-                    new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'SplFileInfo')),
-                    new Type(Type::BUILTIN_TYPE_RESOURCE),
-                ],
-            ],
-            ['bal', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable')]],
-            ['parent', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy')]],
-            ['collection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable'))]],
-            ['nestedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING, false)))]],
-            ['mixedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_INT)], null)]],
-            ['a', null],
-            ['b', null],
-            ['c', [new Type(Type::BUILTIN_TYPE_BOOL, true)]],
-            ['d', [new Type(Type::BUILTIN_TYPE_BOOL)]],
-            ['e', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_RESOURCE))]],
-            ['f', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable'))]],
-            ['g', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true)]],
-            ['h', [new Type(Type::BUILTIN_TYPE_STRING, true)]],
-            ['j', [new Type(Type::BUILTIN_TYPE_OBJECT, true, 'DateTimeImmutable')]],
-            ['nullableCollectionOfNonNullableElements', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_INT, false))]],
-            ['donotexist', null],
-            ['staticGetter', null],
-            ['staticSetter', null],
-        ];
-    }
-
-    public static function typesWithNoPrefixesProvider()
-    {
-        return [
-            ['foo', null],
-            ['bar', [new Type(Type::BUILTIN_TYPE_STRING)]],
-            ['baz', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['foo2', [new Type(Type::BUILTIN_TYPE_FLOAT)]],
-            ['foo3', [new Type(Type::BUILTIN_TYPE_CALLABLE)]],
-            ['foo4', [new Type(Type::BUILTIN_TYPE_NULL)]],
-            ['foo5', null],
-            [
-                'files',
-                [
-                    new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'SplFileInfo')),
-                    new Type(Type::BUILTIN_TYPE_RESOURCE),
-                ],
-            ],
-            ['bal', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable')]],
-            ['parent', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy')]],
-            ['collection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeImmutable'))]],
-            ['nestedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_STRING, false)))]],
-            ['mixedCollection', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_INT)], null)]],
-            ['a', null],
-            ['b', null],
-            ['c', null],
-            ['d', null],
-            ['e', null],
-            ['f', null],
-            ['g', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true)]],
-            ['h', [new Type(Type::BUILTIN_TYPE_STRING, true)]],
-            ['j', [new Type(Type::BUILTIN_TYPE_OBJECT, true, 'DateTimeImmutable')]],
-            ['nullableCollectionOfNonNullableElements', [new Type(Type::BUILTIN_TYPE_ARRAY, true, null, true, new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_INT, false))]],
-            ['donotexist', null],
-            ['staticGetter', null],
-            ['staticSetter', null],
-        ];
-    }
-
-    public static function dockBlockFallbackTypesProvider()
-    {
-        return [
-            'pub' => [
-                'pub', [new Type(Type::BUILTIN_TYPE_STRING)],
-            ],
-            'protAcc' => [
-                'protAcc', [new Type(Type::BUILTIN_TYPE_INT)],
-            ],
-            'protMut' => [
-                'protMut', [new Type(Type::BUILTIN_TYPE_BOOL)],
-            ],
-        ];
+        yield ['foo', null];
+        yield ['bar', Type::string()];
+        yield ['baz', Type::int()];
+        yield ['foo2', Type::float()];
+        yield ['foo3', Type::callable()];
+        yield ['foo5', Type::mixed()];
+        yield ['files', Type::union(Type::list(Type::object(\SplFileInfo::class)), Type::resource())];
+        yield ['bal', Type::object(\DateTimeImmutable::class)];
+        yield ['parent', Type::object(ParentDummy::class)];
+        yield ['collection', Type::list(Type::object(\DateTimeImmutable::class))];
+        yield ['nestedCollection', Type::list(Type::list(Type::string()))];
+        yield ['mixedCollection', Type::list()];
+        yield ['a', null];
+        yield ['b', null];
+        yield ['c', Type::nullable(Type::bool())];
+        yield ['d', Type::bool()];
+        yield ['e', Type::list(Type::resource())];
+        yield ['f', Type::list(Type::object(\DateTimeImmutable::class))];
+        yield ['g', Type::nullable(Type::array())];
+        yield ['h', Type::nullable(Type::string())];
+        yield ['i', Type::union(Type::int(), Type::string(), Type::null())];
+        yield ['j', Type::nullable(Type::object(\DateTimeImmutable::class))];
+        yield ['nullableCollectionOfNonNullableElements', Type::nullable(Type::list(Type::int()))];
+        yield ['nonNullableCollectionOfNullableElements', Type::array(Type::nullable(Type::int()))];
+        yield ['nullableCollectionOfMultipleNonNullableElementTypes', Type::nullable(Type::array(Type::union(Type::int(), Type::string())))];
+        yield ['donotexist', null];
+        yield ['staticGetter', null];
+        yield ['staticSetter', null];
     }
 
     /**
      * @dataProvider dockBlockFallbackTypesProvider
      */
-    public function testDocBlockFallback($property, $types)
+    public function testDocBlockFallback(string $property, ?Type $type)
     {
-        $this->assertEquals($types, $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\DockBlockFallback', $property));
+        $this->assertEquals($type, $this->extractor->getType(DockBlockFallback::class, $property));
+    }
+
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function dockBlockFallbackTypesProvider(): iterable
+    {
+        yield ['pub', Type::string()];
+        yield ['protAcc', Type::int()];
+        yield ['protMut', Type::bool()];
     }
 
     /**
      * @dataProvider propertiesDefinedByTraitsProvider
      */
-    public function testPropertiesDefinedByTraits(string $property, Type $type)
+    public function testPropertiesDefinedByTraits(string $property, ?Type $type)
     {
-        $this->assertEquals([$type], $this->extractor->getTypes(DummyUsingTrait::class, $property));
+        $this->assertEquals($type, $this->extractor->getType(DummyUsingTrait::class, $property));
     }
 
-    public static function propertiesDefinedByTraitsProvider(): array
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function propertiesDefinedByTraitsProvider(): iterable
     {
-        return [
-            ['propertyInTraitPrimitiveType', new Type(Type::BUILTIN_TYPE_STRING)],
-            ['propertyInTraitObjectSameNamespace', new Type(Type::BUILTIN_TYPE_OBJECT, false, DummyUsedInTrait::class)],
-            ['propertyInTraitObjectDifferentNamespace', new Type(Type::BUILTIN_TYPE_OBJECT, false, Dummy::class)],
-        ];
+        yield ['propertyInTraitPrimitiveType', Type::string()];
+        yield ['propertyInTraitObjectSameNamespace', Type::object(DummyUsedInTrait::class)];
+        yield ['propertyInTraitObjectDifferentNamespace', Type::object(Dummy::class)];
     }
 
     /**
      * @dataProvider propertiesStaticTypeProvider
      */
-    public function testPropertiesStaticType(string $class, string $property, Type $type)
+    public function testPropertiesStaticType(string $class, string $property, ?Type $type)
     {
-        $this->assertEquals([$type], $this->extractor->getTypes($class, $property));
-    }
-
-    public static function propertiesStaticTypeProvider(): array
-    {
-        return [
-            [ParentDummy::class, 'propertyTypeStatic', new Type(Type::BUILTIN_TYPE_OBJECT, false, ParentDummy::class)],
-            [Dummy::class, 'propertyTypeStatic', new Type(Type::BUILTIN_TYPE_OBJECT, false, Dummy::class)],
-        ];
+        $this->assertEquals($type, $this->extractor->getType($class, $property));
     }
 
     /**
-     * @dataProvider propertiesParentTypeProvider
+     * @return iterable<array{0: class-string, 1: string, 2: ?Type}>
      */
-    public function testPropertiesParentType(string $class, string $property, ?array $types)
+    public static function propertiesStaticTypeProvider(): iterable
     {
-        $this->assertEquals($types, $this->extractor->getTypes($class, $property));
+        yield [ParentDummy::class, 'propertyTypeStatic', Type::object(ParentDummy::class)];
+        yield [Dummy::class, 'propertyTypeStatic', Type::object(Dummy::class)];
     }
 
-    public static function propertiesParentTypeProvider(): array
+    public function testPropertiesParentType()
     {
-        return [
-            [ParentDummy::class, 'parentAnnotationNoParent', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'parent')]],
-            [Dummy::class, 'parentAnnotation', [new Type(Type::BUILTIN_TYPE_OBJECT, false, ParentDummy::class)]],
-        ];
+        $this->assertEquals(Type::object(ParentDummy::class), $this->extractor->getType(Dummy::class, 'parentAnnotation'));
+    }
+
+    public function testPropertiesParentTypeThrowWithoutParent()
+    {
+        $this->expectException(LogicException::class);
+        $this->extractor->getType(ParentDummy::class, 'parentAnnotationNoParent');
     }
 
     /**
      * @dataProvider constructorTypesProvider
      */
-    public function testExtractConstructorTypes($property, array $type = null)
+    public function testExtractConstructorTypes(string $property, ?Type $type)
     {
-        $this->assertEquals($type, $this->extractor->getTypesFromConstructor('Symfony\Component\PropertyInfo\Tests\Fixtures\ConstructorDummy', $property));
+        $this->assertEquals($type, $this->extractor->getTypeFromConstructor(ConstructorDummy::class, $property));
     }
 
     /**
      * @dataProvider constructorTypesProvider
      */
-    public function testExtractConstructorTypesReturnNullOnEmptyDocBlock($property)
+    public function testExtractConstructorTypesReturnNullOnEmptyDocBlock(string $property)
     {
-        $this->assertNull($this->extractor->getTypesFromConstructor(ConstructorDummyWithoutDocBlock::class, $property));
+        $this->assertNull($this->extractor->getTypeFromConstructor(ConstructorDummyWithoutDocBlock::class, $property));
     }
 
-    public static function constructorTypesProvider()
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function constructorTypesProvider(): iterable
     {
-        return [
-            ['date', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['timezone', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeZone')]],
-            ['dateObject', [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'DateTimeInterface')]],
-            ['dateTime', null],
-            ['ddd', null],
-        ];
+        yield ['date', Type::int()];
+        yield ['timezone', Type::object(\DateTimeZone::class)];
+        yield ['dateObject', Type::object(\DateTimeInterface::class)];
+        yield ['dateTime', null];
+        yield ['ddd', null];
     }
 
     /**
      * @dataProvider unionTypesProvider
      */
-    public function testExtractorUnionTypes(string $property, ?array $types)
+    public function testExtractorUnionTypes(string $property, ?Type $type)
     {
-        $this->assertEquals($types, $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\DummyUnionType', $property));
+        $this->assertEquals($type, $this->extractor->getType(DummyUnionType::class, $property));
     }
 
-    public static function unionTypesProvider(): array
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function unionTypesProvider(): iterable
     {
-        return [
-            ['a', [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)]],
-            ['b', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_INT)], [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)])]],
-            ['c', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [], [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)])]],
-            ['d', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)], [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [], [new Type(Type::BUILTIN_TYPE_STRING)])])]],
-            ['e', [new Type(Type::BUILTIN_TYPE_OBJECT, true, Dummy::class, true, [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [], [new Type(Type::BUILTIN_TYPE_STRING)])], [new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [new Type(Type::BUILTIN_TYPE_INT)], [new Type(Type::BUILTIN_TYPE_STRING, false, null, true, [], [new Type(Type::BUILTIN_TYPE_OBJECT, false, DefaultValue::class)])])]), new Type(Type::BUILTIN_TYPE_OBJECT, false, ParentDummy::class)]],
-            ['f', null],
-            ['g', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, [], [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)])]],
-        ];
+        yield ['a', Type::union(Type::string(), Type::int())];
+        yield ['b', Type::list(Type::union(Type::string(), Type::int()))];
+        yield ['c', Type::array(Type::union(Type::string(), Type::int()))];
+        yield ['d', Type::array(Type::array(Type::string()), Type::union(Type::string(), Type::int()))];
+        yield ['e', Type::union(
+            Type::generic(
+                Type::object(Dummy::class),
+                Type::array(Type::string(), Type::mixed()),
+                Type::union(Type::int(), Type::list(Type::generic(Type::string(), Type::object(DefaultValue::class)))),
+            ),
+            Type::object(ParentDummy::class),
+            Type::null(),
+        )];
+        yield ['f', null];
+        yield ['g', Type::array(Type::union(Type::string(), Type::int()))];
     }
 
     /**
      * @dataProvider pseudoTypesProvider
      */
-    public function testPseudoTypes($property, array $type)
+    public function testPseudoTypes(string $property, ?Type $type)
     {
-        $this->assertEquals($type, $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\PhpStanPseudoTypesDummy', $property));
+        $this->assertEquals($type, $this->extractor->getType(PhpStanPseudoTypesDummy::class, $property));
     }
 
-    public static function pseudoTypesProvider(): array
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function pseudoTypesProvider(): iterable
     {
-        return [
-            ['classString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['classStringGeneric', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['htmlEscapedString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['lowercaseString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['nonEmptyLowercaseString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['nonEmptyString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['numericString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['traitString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['interfaceString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['literalString', [new Type(Type::BUILTIN_TYPE_STRING, false, null)]],
-            ['positiveInt', [new Type(Type::BUILTIN_TYPE_INT, false, null)]],
-            ['negativeInt', [new Type(Type::BUILTIN_TYPE_INT, false, null)]],
-            ['nonEmptyArray', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true)]],
-            ['nonEmptyList', [new Type(Type::BUILTIN_TYPE_ARRAY, false, null, true, new Type(Type::BUILTIN_TYPE_INT))]],
-            ['scalar', [new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_FLOAT), new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_BOOL)]],
-            ['number', [new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_FLOAT)]],
-            ['numeric', [new Type(Type::BUILTIN_TYPE_INT), new Type(Type::BUILTIN_TYPE_FLOAT), new Type(Type::BUILTIN_TYPE_STRING)]],
-            ['arrayKey', [new Type(Type::BUILTIN_TYPE_STRING), new Type(Type::BUILTIN_TYPE_INT)]],
-            ['double', [new Type(Type::BUILTIN_TYPE_FLOAT)]],
-        ];
+        yield ['classString', Type::string()];
+        yield ['classStringGeneric', Type::generic(Type::string(), Type::object(\stdClass::class))];
+        yield ['htmlEscapedString', Type::string()];
+        yield ['lowercaseString', Type::string()];
+        yield ['nonEmptyLowercaseString', Type::string()];
+        yield ['nonEmptyString', Type::string()];
+        yield ['numericString', Type::string()];
+        yield ['traitString', Type::string()];
+        yield ['interfaceString', Type::string()];
+        yield ['literalString', Type::string()];
+        yield ['positiveInt', Type::int()];
+        yield ['negativeInt', Type::int()];
+        yield ['nonEmptyArray', Type::array()];
+        yield ['nonEmptyList', Type::list()];
+        yield ['scalar', Type::union(Type::int(), Type::float(), Type::string(), Type::bool())];
+        yield ['number', Type::union(Type::int(), Type::float())];
+        yield ['numeric', Type::union(Type::int(), Type::float(), Type::string())];
+        yield ['arrayKey', Type::union(Type::int(), Type::string())];
+        yield ['double', Type::float()];
     }
 
     public function testDummyNamespace()
     {
-        $this->assertEquals(
-            [new Type(Type::BUILTIN_TYPE_OBJECT, false, 'Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy')],
-            $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\DummyNamespace', 'dummy')
-        );
+        $this->assertEquals(Type::object(Dummy::class), $this->extractor->getType(DummyNamespace::class, 'dummy'));
     }
 
     public function testDummyNamespaceWithProperty()
     {
-        $phpStanTypes = $this->extractor->getTypes(\B\Dummy::class, 'property');
-        $phpDocTypes = $this->phpDocExtractor->getTypes(\B\Dummy::class, 'property');
+        $phpStanType = $this->extractor->getType(\B\Dummy::class, 'property');
+        $phpDocType = $this->phpDocExtractor->getType(\B\Dummy::class, 'property');
 
-        $this->assertEquals('A\Property', $phpStanTypes[0]->getClassName());
-        $this->assertEquals($phpDocTypes[0]->getClassName(), $phpStanTypes[0]->getClassName());
+        $this->assertEquals('A\Property', $phpStanType->getClassName());
+        $this->assertEquals($phpDocType->getClassName(), $phpStanType->getClassName());
     }
 
     /**
      * @dataProvider intRangeTypeProvider
      */
-    public function testExtractorIntRangeType(string $property, ?array $types)
+    public function testExtractorIntRangeType(string $property, ?Type $type)
     {
-        $this->assertEquals($types, $this->extractor->getTypes('Symfony\Component\PropertyInfo\Tests\Fixtures\IntRangeDummy', $property));
+        $this->assertEquals($type, $this->extractor->getType(IntRangeDummy::class, $property));
     }
 
-    public static function intRangeTypeProvider(): array
+    /**
+     * @return iterable<array{0: string, 1: ?Type}>
+     */
+    public static function intRangeTypeProvider(): iterable
     {
-        return [
-            ['a', [new Type(Type::BUILTIN_TYPE_INT)]],
-            ['b', [new Type(Type::BUILTIN_TYPE_INT, true)]],
-            ['c', [new Type(Type::BUILTIN_TYPE_INT)]],
-        ];
+        yield ['a', Type::int()];
+        yield ['b', Type::nullable(Type::int())];
+        yield ['c', Type::int()];
     }
 
     /**
      * @dataProvider php80TypesProvider
      */
-    public function testExtractPhp80Type(string $class, $property, array $type = null)
+    public function testExtractPhp80Type(string $class, string $property, ?Type $type)
     {
-        $this->assertEquals($type, $this->extractor->getTypes($class, $property, []));
+        $this->assertEquals($type, $this->extractor->getType($class, $property));
     }
 
-    public static function php80TypesProvider()
+    /**
+     * @return iterable<array{0: class-string, 1: string, 2: ?Type}>
+     */
+    public static function php80TypesProvider(): iterable
     {
-        return [
-            [Php80Dummy::class, 'promotedAndMutated', [new Type(Type::BUILTIN_TYPE_STRING)]],
-            [Php80Dummy::class, 'promoted', null],
-            [Php80Dummy::class, 'collection', [new Type(Type::BUILTIN_TYPE_ARRAY, collection: true, collectionValueType: new Type(Type::BUILTIN_TYPE_STRING))]],
-            [Php80PromotedDummy::class, 'promoted', null],
-        ];
+        yield [Php80Dummy::class, 'promotedAndMutated', Type::string()];
+        yield [Php80Dummy::class, 'promoted', null];
+        yield [Php80Dummy::class, 'collection', Type::array(Type::string())];
+        yield [Php80PromotedDummy::class, 'promoted', null];
     }
 }
 

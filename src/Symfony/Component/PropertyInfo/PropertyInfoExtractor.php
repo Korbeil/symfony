@@ -11,6 +11,8 @@
 
 namespace Symfony\Component\PropertyInfo;
 
+use Symfony\Component\TypeInfo\Type;
+
 /**
  * Default {@see PropertyInfoExtractorInterface} implementation.
  *
@@ -54,6 +56,11 @@ class PropertyInfoExtractor implements PropertyInfoExtractorInterface, PropertyI
     public function getTypes(string $class, string $property, array $context = []): ?array
     {
         return $this->extract($this->typeExtractors, 'getTypes', [$class, $property, $context]);
+    }
+
+    public function getType(string $class, string $property, array $context = []): ?Type
+    {
+        return $this->extract($this->typeExtractors, 'getType', [$class, $property, $context]);
     }
 
     public function isReadable(string $class, string $property, array $context = []): ?bool

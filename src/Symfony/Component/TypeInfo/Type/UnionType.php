@@ -46,4 +46,32 @@ class UnionType extends Type
 
         return $string;
     }
+
+    /**
+     * BC Layer for Symfony\Component\PropertyInfo\Type.
+     *
+     * @internal
+     */
+    public function setCollection(bool $collection): void
+    {
+        $this->isCollection = $collection;
+
+        foreach ($this->types as $t) {
+            $t->setCollection($collection);
+        }
+    }
+
+    /**
+     * BC Layer for Symfony\Component\PropertyInfo\Type.
+     *
+     * @internal
+     */
+    public function setNullable(bool $nullable): void
+    {
+        $this->isNullable = $nullable;
+
+        foreach ($this->types as $t) {
+            $t->setNullable($nullable);
+        }
+    }
 }

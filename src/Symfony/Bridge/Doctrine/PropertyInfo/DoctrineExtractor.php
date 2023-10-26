@@ -21,7 +21,8 @@ use Doctrine\Persistence\Mapping\MappingException;
 use Symfony\Component\PropertyInfo\PropertyAccessExtractorInterface;
 use Symfony\Component\PropertyInfo\PropertyListExtractorInterface;
 use Symfony\Component\PropertyInfo\PropertyTypeExtractorInterface;
-use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\PropertyInfo\Util\BackwardCompatibilityHelper;
+use Symfony\Component\TypeInfo\Type;
 
 /**
  * Extracts data using Doctrine ORM and ODM metadata.
@@ -52,7 +53,7 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
         return $properties;
     }
 
-    public function getTypes(string $class, string $property, array $context = []): ?array
+    public function getType(string $class, string $property, array $context = []): ?Type
     {
         if (null === $metadata = $this->getMetadata($class)) {
             return null;
@@ -64,16 +65,17 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
             if ($metadata->isSingleValuedAssociation($property)) {
                 if ($metadata instanceof ClassMetadata) {
                     $associationMapping = $metadata->getAssociationMapping($property);
-
                     $nullable = $this->isAssociationNullable($associationMapping);
                 } else {
                     $nullable = false;
                 }
 
-                return [new Type(Type::BUILTIN_TYPE_OBJECT, $nullable, $class)];
+                $t = Type::object($class);
+
+                return $nullable ? Type::nullable($t) : $t;
             }
 
-            $collectionKeyType = Type::BUILTIN_TYPE_INT;
+            $collectionKeyType = 'int';
 
             if ($metadata instanceof ClassMetadata) {
                 $associationMapping = $metadata->getAssociationMapping($property);
@@ -107,18 +109,11 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
                 }
             }
 
-            return [new Type(
-                Type::BUILTIN_TYPE_OBJECT,
-                false,
-                Collection::class,
-                true,
-                new Type($collectionKeyType),
-                new Type(Type::BUILTIN_TYPE_OBJECT, false, $class)
-            )];
+            return Type::collection(Type::object(Collection::class), Type::object($class), Type::builtin($collectionKeyType));
         }
 
         if ($metadata instanceof ClassMetadata && isset($metadata->embeddedClasses[$property])) {
-            return [new Type(Type::BUILTIN_TYPE_OBJECT, false, $metadata->embeddedClasses[$property]['class'])];
+            return Type::object($metadata->embeddedClasses[$property]['class']);
         }
 
         if ($metadata->hasField($property)) {
@@ -131,31 +126,39 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
             $nullable = $metadata instanceof ClassMetadata && $metadata->isNullable($property);
             $enumType = null;
             if (null !== $enumClass = $metadata->getFieldMapping($property)['enumType'] ?? null) {
-                $enumType = new Type(Type::BUILTIN_TYPE_OBJECT, $nullable, $enumClass);
+                $enumType = Type::enum($enumClass);
+
+                $nullable ? Type::nullable($enumClass) : $enumType;
             }
 
             switch ($builtinType) {
-                case Type::BUILTIN_TYPE_OBJECT:
+                case 'object':
                     switch ($typeOfField) {
                         case Types::DATE_MUTABLE:
                         case Types::DATETIME_MUTABLE:
                         case Types::DATETIMETZ_MUTABLE:
                         case 'vardatetime':
                         case Types::TIME_MUTABLE:
-                            return [new Type(Type::BUILTIN_TYPE_OBJECT, $nullable, 'DateTime')];
+                            $t = Type::object(\DateTime::class);
+
+                            return $nullable ? Type::nullable($t) : $t;
 
                         case Types::DATE_IMMUTABLE:
                         case Types::DATETIME_IMMUTABLE:
                         case Types::DATETIMETZ_IMMUTABLE:
                         case Types::TIME_IMMUTABLE:
-                            return [new Type(Type::BUILTIN_TYPE_OBJECT, $nullable, 'DateTimeImmutable')];
+                            $t = Type::object(\DateTimeImmutable::class);
+
+                            return $nullable ? Type::nullable($t) : $t;
 
                         case Types::DATEINTERVAL:
-                            return [new Type(Type::BUILTIN_TYPE_OBJECT, $nullable, 'DateInterval')];
+                            $t = Type::object(\DateInterval::class);
+
+                            return $nullable ? Type::nullable($t) : $t;
                     }
 
                     break;
-                case Type::BUILTIN_TYPE_ARRAY:
+                case 'array':
                     switch ($typeOfField) {
                         case 'array':      // DBAL < 4
                         case 'json_array': // DBAL < 3
@@ -164,24 +167,37 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
                                 return null;
                             }
 
-                            return [new Type(Type::BUILTIN_TYPE_ARRAY, $nullable, null, true)];
+                            $t = Type::array();
+
+                            return $nullable ? Type::nullable($t) : $t;
 
                         case Types::SIMPLE_ARRAY:
-                            return [new Type(Type::BUILTIN_TYPE_ARRAY, $nullable, null, true, new Type(Type::BUILTIN_TYPE_INT), $enumType ?? new Type(Type::BUILTIN_TYPE_STRING))];
+                            $t = Type::list($enumType ?? Type::string());
+
+                            return $nullable ? Type::nullable($t) : $t;
                     }
                     break;
-                case Type::BUILTIN_TYPE_INT:
-                case Type::BUILTIN_TYPE_STRING:
+                case 'int':
+                case 'string':
                     if ($enumType) {
-                        return [$enumType];
+                        return $enumType;
                     }
                     break;
             }
 
-            return [new Type($builtinType, $nullable)];
+            $t = Type::builtin($builtinType);
+
+            return $nullable ? Type::nullable($t) : $t;
         }
 
         return null;
+    }
+
+    public function getTypes(string $class, string $property, array $context = []): ?array
+    {
+        trigger_deprecation('symfony/doctrine-bridge', '7.1', 'The "%s()" method is deprecated. Use "%s::getType()" instead.', __METHOD__, self::class);
+
+        return BackwardCompatibilityHelper::convertTypeToLegacyTypes($this->getType($class, $property, $context, true));
     }
 
     public function isReadable(string $class, string $property, array $context = []): ?bool
@@ -245,16 +261,16 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
     {
         return match ($doctrineType) {
             Types::SMALLINT,
-            Types::INTEGER => Type::BUILTIN_TYPE_INT,
-            Types::FLOAT => Type::BUILTIN_TYPE_FLOAT,
+            Types::INTEGER => 'int',
+            Types::FLOAT => 'float',
             Types::BIGINT,
             Types::STRING,
             Types::TEXT,
             Types::GUID,
-            Types::DECIMAL => Type::BUILTIN_TYPE_STRING,
-            Types::BOOLEAN => Type::BUILTIN_TYPE_BOOL,
+            Types::DECIMAL => 'string',
+            Types::BOOLEAN => 'bool',
             Types::BLOB,
-            Types::BINARY => Type::BUILTIN_TYPE_RESOURCE,
+            Types::BINARY => 'resource',
             'object', // DBAL < 4
             Types::DATE_MUTABLE,
             Types::DATETIME_MUTABLE,
@@ -265,10 +281,10 @@ class DoctrineExtractor implements PropertyListExtractorInterface, PropertyTypeE
             Types::DATETIME_IMMUTABLE,
             Types::DATETIMETZ_IMMUTABLE,
             Types::TIME_IMMUTABLE,
-            Types::DATEINTERVAL => Type::BUILTIN_TYPE_OBJECT,
+            Types::DATEINTERVAL => 'object',
             'array', // DBAL < 4
             'json_array', // DBAL < 3
-            Types::SIMPLE_ARRAY => Type::BUILTIN_TYPE_ARRAY,
+            Types::SIMPLE_ARRAY => 'array',
             default => null,
         };
     }

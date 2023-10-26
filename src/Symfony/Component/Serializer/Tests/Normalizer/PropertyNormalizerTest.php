@@ -425,6 +425,7 @@ class PropertyNormalizerTest extends TestCase
         $this->assertTrue($this->normalizer->supportsNormalization(new PropertyChildDummy()));
     }
 
+    /** @group wip */
     public function testMultiDimensionObject()
     {
         $normalizer = $this->getDenormalizerForTypeEnforcement();
